@@ -1,0 +1,180 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import os
+
+# 1. Загрузка
+work_dir = "/kaggle/input/kazakhstan-ai-respa-take-home"
+# work_dir = "../input/kazakhstan-ai-respa-take-home/"
+train = pd.read_csv(os.path.join(work_dir, "train.csv"))
+train['submitted_date'] = pd.to_datetime(train['submitted_date'])
+train
+
+
+def get_category_data(df: pd.DataFrame, category: str):
+    category_data = df[df['category'] == category].copy()
+    category_data = category_data.sort_values('submitted_date')
+    category_data = category_data.set_index('submitted_date')
+    return category_data.drop('category', axis=1)
+
+
+category_data = get_category_data(train, 'hep-ph - High Energy Physics - Phenomenology')
+category_data.dropna()
+category_data
+
+def extend_dataset(cat_data, last_train_date, future_weeks_num):
+    if future_weeks_num > 0:
+        # посчитали, сколько дней нужно добавить
+        days_to_add = future_weeks_num * 7
+        future_dates = pd.date_range(
+            start=pd.to_datetime(last_train_date) + pd.Timedelta(days=1),
+            periods=days_to_add,
+            freq='D'
+        )
+        future = pd.DataFrame(
+            index=future_dates,
+            columns=cat_data.columns  # гарантируем те же колонки
+        )
+        return pd.concat([cat_data, future])
+    return cat_data
+
+
+last_train_date=train.submitted_date.max()
+category_data = extend_dataset(category_data, last_train_date, 1)
+category_data.tail(10)
+
+def get_rolling_features(cat_data: pd.DataFrame):
+    daily_features = pd.DataFrame()
+    weekly_rolling = cat_data['num_papers'].rolling('7D', min_periods=1)
+    daily_features[f'rolling_sum_during_week'] = weekly_rolling.sum()
+    daily_features[f'rolling_max_during_week'] = weekly_rolling.max()
+
+    month_rolling = cat_data['num_papers'].rolling('28D', min_periods=1)
+    
+    daily_features[f'rolling_min_during_month'] = month_rolling.min()
+    daily_features[f'rolling_max_during_month'] = month_rolling.max()
+    return daily_features
+
+rolling_features = get_rolling_features(cat_data=category_data)
+rolling_features.tail(10)
+
+def add_lag_features(features: pd.DataFrame):
+    new_features = features.copy()
+    for col in features.columns:
+        new_features[f'{col}_last_week'] = features[col].shift(freq=pd.Timedelta(days=7))
+    return new_features.dropna()
+
+lag_features = add_lag_features(rolling_features)
+lag_features.tail(10)
+
+def build_weekly_features(features):
+    daily_features = features.reset_index(names="day")
+    daily_features['week'] = daily_features['day'] + pd.to_timedelta(6 - daily_features['day'].dt.weekday, unit='D')
+    weekly_features = daily_features.groupby('week').last().reset_index()
+    return weekly_features.drop('day', axis=1)
+
+weekly_features = build_weekly_features(lag_features)
+weekly_features.tail(10)
+
+def build_targets(category_data, week_horizon: int):
+    targets = category_data.resample('W').sum().shift(-week_horizon).num_papers.rename('target')
+    targets.index.name = 'week'
+    return targets
+
+targets = build_targets(category_data=category_data, week_horizon=1)
+targets
+
+current_data = weekly_features.merge(targets, on='week')
+current_data
+
+from tqdm.auto import tqdm
+
+last_train_date=train.submitted_date.max()
+progress_bar = tqdm(train.category.unique())
+
+dataset = []
+for category in progress_bar:
+    category_data = get_category_data(train, category)
+    extended_category_data = extend_dataset(category_data, last_train_date=last_train_date, future_weeks_num=1)
+    rolling_features = get_rolling_features(cat_data=extended_category_data)
+    lag_features = add_lag_features(rolling_features)
+    weekly_features = build_weekly_features(lag_features)
+    targets = build_targets(category_data=category_data, week_horizon=1)
+    data = weekly_features.merge(targets, on='week')
+    data['category'] = category
+    dataset.append(data)
+
+dataset = pd.concat(dataset)
+dataset['category'] = dataset['category'].astype('category')
+dataset
+
+labeled_data = dataset[dataset.target.notnull()].reset_index(drop=True).dropna()
+
+n_valid_weeks = 4
+valid_start_date = last_train_date - pd.Timedelta(days=7 * n_valid_weeks)
+
+print(f"Предпоследняя неделя: {valid_start_date}")
+valid_dataset = labeled_data[labeled_data.week > valid_start_date]
+train_dataset = labeled_data[labeled_data.week < valid_start_date]
+test_dataset = dataset[dataset.target.isnull()].reset_index(drop=True)
+
+print(train_dataset.shape, valid_dataset.shape, test_dataset.shape)
+
+import lightgbm
+
+train_set = lightgbm.Dataset(train_dataset.drop(['week', 'target'], axis=1), label=train_dataset['target'])
+valid_set = lightgbm.Dataset(valid_dataset.drop(['week', 'target'], axis=1), label=valid_dataset['target'])
+test_set = test_dataset.drop(['week', 'target'], axis=1)
+
+def safe_mape_lgb(y_pred, dataset):
+    y_true = dataset.get_label()
+    denominator = pd.Series(y_true).abs().clip(lower=10.0)
+    error = abs(y_pred - y_true) / denominator
+    return 'safe_mape', error.mean(), False  # False = the lower the better
+
+# 2. Параметры модели
+params = {
+    'objective': 'regression',
+    'learning_rate': 0.05,
+    'depth': 5,
+    'verbosity': -1,
+    'metric': 'None'
+}
+
+# 3. Обучение с кастомной метрикой
+model = lightgbm.train(
+    params,
+    train_set,
+    num_boost_round=200,
+    valid_sets=[valid_set],
+    valid_names=['valid'],
+    feval=safe_mape_lgb,
+    callbacks=[
+        lightgbm.early_stopping(stopping_rounds=50),
+        lightgbm.log_evaluation(period=50)
+    ]
+)
+
+test_dataset['predicted'] = model.predict(test_set)
+test_dataset[['category', 'predicted']]
+
+# Загрузка sample_submission
+sample_submission = pd.read_csv(os.path.join(work_dir, "sample_submission.csv"))
+
+# Извлекаем category из id
+sample_submission['category'] = sample_submission['id'].apply(lambda x: x.split('__')[0])
+
+# Объединяем с предсказаниями
+submission = sample_submission.merge(
+    test_dataset[['category', 'week', 'predicted']],
+    on='category',
+    how='left'
+)
+
+# Удаляем временную колонку и переименовываем
+submission = submission[['id', 'predicted']].rename(columns={'predicted': 'num_papers'})
+
+# Сохраняем
+submission.to_csv("submission.csv", index=False)
+
+
