@@ -1,0 +1,37 @@
+import pandas as pd
+import lightgbm as lgb
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.metrics import accuracy_score
+import numpy as np
+
+# 1. Загружаем данные
+data = load_breast_cancer()
+X = pd.DataFrame(data.data, columns=data.feature_names)
+y = data.target
+
+# 2. Инициализация модели
+model = lgb.LGBMClassifier(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
+
+# 3. K-Fold кросс-валидация (Stratified — чтобы сохранять баланс классов)
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+# 4. Кросс-валидационная оценка точности
+scores = cross_val_score(model, X, y, cv=cv, scoring='accuracy')
+print("Cross-Validation Accuracy scores:", scores)
+print("Mean accuracy:", np.mean(scores))
+
+# 5. Обучение на всех данных после валидации
+model.fit(X, y)
+
+# 6. Визуализация важности признаков
+import matplotlib.pyplot as plt
+
+importances = model.feature_importances_
+features = X.columns
+
+plt.figure(figsize=(10, 6))
+plt.barh(features, importances)
+plt.title("LightGBM Feature Importances")
+plt.xlabel("Importance")
+plt.show()
