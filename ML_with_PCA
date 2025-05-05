@@ -1,0 +1,41 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+# df — таблица с 32 признаками и колонкой 'breed'
+X = df[[f'gene_{i}' for i in range(1, 33)]]
+y = df['breed']  # значения: 1 или 2
+
+# Приведение классов к 0/1
+y = (y == 2).astype(int)  # пусть 1 — это порода №2
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+from sklearn.decomposition import PCA
+
+pca = PCA(n_components=10)  # уменьшаем до 10 компонент
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
+
+model = LogisticRegression()
+model.fit(X_train_pca, y_train)
+
+y_pred = model.predict(X_test_pca)
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+
+import matplotlib.pyplot as plt
+
+pca_2 = PCA(n_components=2)
+X_2d = pca_2.fit_transform(X)
+
+plt.figure(figsize=(6, 5))
+plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y, cmap='coolwarm', alpha=0.6)
+plt.title("PCA визуализация корги по генам")
+plt.xlabel("PC1")
+plt.ylabel("PC2")
+plt.grid(True)
+plt.show()
