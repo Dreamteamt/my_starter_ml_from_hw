@@ -1,0 +1,28 @@
+# Импортируем необходимые библиотеки
+from sklearn.linear_model import LogisticRegression
+from sklearn.datasets import make_classification
+from sklearn.metrics import accuracy_score
+
+# Генерация синтетических данных для бинарной классификации
+X, y = make_classification(n_samples=100, n_features=2, n_classes=2, random_state=42)
+
+# Разделим данные на обучающую и тестовую выборки
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Создаем и обучаем модель логистической регрессии
+log_reg = LogisticRegression()
+log_reg.fit(X_train, y_train)
+
+# Предсказания модели
+y_pred = log_reg.predict(X_test)
+
+# Оценка качества модели
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Точность модели: {accuracy}")
+
+# Визуализация данных
+plt.scatter(X_test[:, 0], X_test[:, 1], c=y_pred, cmap='coolwarm', marker='o', label='Предсказания')
+plt.title('Решение задачи классификации')
+plt.xlabel('X1')
+plt.ylabel('X2')
+plt.show()
