@@ -1,0 +1,35 @@
+import lightgbm as lgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+model = lgb.LGBMClassifier()
+model.fit(X_train, y_train)
+
+y_pred = model.predict(X_test)
+print("Accuracy:", accuracy_score(y_test, y_pred))
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+importances = model.feature_importances_
+indices = np.argsort(importances)[::-1]
+feature_names = X.columns
+
+plt.figure(figsize=(10, 6))
+plt.barh(feature_names[indices], importances[indices])
+plt.title("Важность генов (LightGBM)")
+plt.xlabel("Feature importance")
+plt.gca().invert_yaxis()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+import shap
+
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
+
+# Для бинарной классификации shap_values[1] — вклад в класс 1 (порода 2)
+shap.summary_plot(shap_values[1], X_test, plot_type="bar")
