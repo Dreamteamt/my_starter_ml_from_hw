@@ -1,0 +1,10 @@
+from sklearn.model_selection import GridSearchCV
+
+params = {
+    'learning_rate': [0.01, 0.1],
+    'n_estimators': [100, 200],
+    'max_depth': [3, 5]
+}
+grid = GridSearchCV(model, param_grid=params, cv=5, scoring='accuracy')
+grid.fit(X, y)
+print(grid.best_params_)
