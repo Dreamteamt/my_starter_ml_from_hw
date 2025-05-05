@@ -1,0 +1,32 @@
+# Импортируем необходимые библиотеки
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+
+# Генерация синтетических данных (X: характеристика, y: целевая переменная)
+X = np.random.rand(100, 1) * 10  # 100 точек данных с случайными значениями от 0 до 10
+y = 2.5 * X + 3 + np.random.randn(100, 1)  # Линейная зависимость с шумом
+
+# Разделим данные на обучающую и тестовую выборки
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Создаем и обучаем модель линейной регрессии
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Предсказания модели
+y_pred = model.predict(X_test)
+
+# Оценка качества модели
+mse = mean_squared_error(y_test, y_pred)
+print(f"Среднеквадратичная ошибка: {mse}")
+
+# Визуализация данных и линии регрессии
+plt.scatter(X_test, y_test, color='blue', label='Тестовые данные')
+plt.plot(X_test, y_pred, color='red', label='Линия регрессии')
+plt.xlabel('X')
+plt.ylabel('y')
+plt.legend()
+plt.show()
